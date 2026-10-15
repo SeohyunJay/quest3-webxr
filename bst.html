@@ -1,0 +1,20 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>Quest 3 XR Lab — bst</title><script src="https://aframe.io/releases/1.8.0/aframe.min.js"></script>
+<style>body{margin:0;font-family:system-ui}#hud{position:absolute;left:12px;top:10px;z-index:2;background:#0f172adf;color:white;border-radius:12px;padding:12px;max-width:370px;font-size:13px}#hud a{color:#93c5fd}#download{margin-top:8px;padding:7px;border:0;border-radius:6px;cursor:pointer}</style></head>
+<body data-mode="bst"><div id="hud"><b>Quest 3 XR Research Lab · bst</b><p>Open on Quest Browser and choose Enter VR. Look at a clickable shape for 1.2 seconds.</p><div><a href="index.html">Baseline</a> · <a href="dos.html">DoS demo</a> · <a href="bst.html">BST demo</a></div><button id="download">Export CSV events</button><p>Only simulated interactions; no network transmission.</p></div>
+<a-scene id="scene" background="color: #0b1224" renderer="antialias: true" xr-mode-ui="enabled: true">
+<a-entity light="type: ambient; intensity: 0.9"></a-entity><a-entity light="type: directional; intensity: 0.7" position="2 4 1"></a-entity>
+<a-plane position="0 0 -4" rotation="-90 0 0" width="12" height="12" color="#17243a"></a-plane>
+<a-entity camera look-controls position="0 1.6 0"><a-cursor color="#ffffff" fuse="true" fuse-timeout="1200" raycaster="objects: .clickable; far: 12" geometry="primitive: ring; radiusInner: 0.008; radiusOuter: 0.014" material="shader: flat; opacity: .9"></a-cursor></a-entity>
+<a-text value="QUEST 3 WEBXR LAB" position="-1.45 2.65 -3" width="3.5" color="#dbeafe"></a-text>
+<a-text id="instructions" value="" position="-1.6 2.3 -3" width="3.2" wrap-count="38" color="#a5b4fc"></a-text>
+<a-box id="target" class="clickable" position="0 1.5 -3" color="#60a5fa" width=".75" height=".75" depth=".2"></a-box>
+<a-plane id="shield" class="clickable" position="0 1.5 -2.65" width="1.3" height="1.3" color="#f472b6" opacity=".72" visible="false" material="side: double"></a-plane>
+<a-box id="front" class="clickable" position="0 1.5 -3" color="#f59e0b" width=".9" height=".9" depth=".15" visible="false"></a-box>
+<a-text id="rear" value="SIMULATED REAR ITEM (NOT AN AD)" position="1.5 1.4 2.5" rotation="0 180 0" align="center" width="3.2" color="#f9a8d4" visible="false"></a-text>
+<a-text id="status" value="" position="-1.65 .85 -3" width="3.4" color="#f8fafc"></a-text>
+<a-text id="notice" value="Ready" position="-1.65 .55 -3" width="3.4" color="#86efac"></a-text>
+<a-plane id="reset" class="clickable" position="0 0.12 -2.75" width="1.3" height=".28" color="#334155"></a-plane>
+<a-text value="GAZE TO RESET" position="-.55 .12 -2.745" width="1.2" color="white" align="center"></a-text>
+</a-scene><script src="app.js"></script></body></html>
