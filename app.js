@@ -1,77 +1,174 @@
-(() => {
+/* global AFRAME */
 'use strict';
-const mode = document.body.dataset.mode || 'baseline';
-const events=[]; let counts={target:0,blocked:0,proxy:0}; let start=performance.now();
-const $ = id=>document.getElementById(id);
-const emit=(type,details={})=>{const e={time_iso:new Date().toISOString(),elapsed_ms:Math.round(performance.now()-start),mode,event:type,...details};events.push(e); console.log('[QuestLab]',e);render();};
-const setText=(id,s)=>$(id).setAttribute('value',s);
-function render(){setText('status',`MODE: ${mode.toUpperCase()} | target ${counts.target} | blocked ${counts.blocked} | simulated ${counts.proxy}`);}
-function flash(el,color){const original=el.getAttribute('material').color;el.setAttribute('color',color);setTimeout(()=>el.setAttribute('color',original),350);}
-const recentClicks = {};
-function dispatch(id,fn){const t=performance.now();if(t-(recentClicks[id]||-9999)<1500)return;recentClicks[id]=t;fn();}
-function bind(id,fn){$(id).addEventListener('click',()=>dispatch(id,fn));}
-// Quest Browser fallback: check actual headset-forward ray against the scene objects.
-// This is useful if the gaze cursor is visible but its fuse click never fires.
-function startGazeFallback(){
- const scene=$('scene');
- const cameraEl=scene.querySelector('[camera]');
- const ray=new THREE.Raycaster();
- const origin=new THREE.Vector3(), direction=new THREE.Vector3(), quaternion=new THREE.Quaternion();
- let active=null, since=0, firedFor=null, lastFire=0;
- const candidateIds=mode==='dos'?['shield','target','reset']:mode==='bst'?['front','reset']:['target','reset'];
- const callbacks={target:success,shield:block,front:proxy,reset:()=>{counts={target:0,blocked:0,proxy:0};events.length=0;start=performance.now();setText('notice','Counters reset');emit('reset');}};
- setInterval(()=>{
-   if(!scene.hasLoaded || !cameraEl || !cameraEl.object3D) return;
-   cameraEl.object3D.getWorldPosition(origin);
-   cameraEl.object3D.getWorldQuaternion(quaternion);
-   direction.set(0,0,-1).applyQuaternion(quaternion);
-   ray.set(origin,direction);ray.far=12;
-   const hits=[];
-   for(const id of candidateIds){
-     const el=$(id);
-     if(!el || !el.object3D || el.getAttribute('visible')===false) continue;
-     const mesh=el.getObject3D('mesh');
-     if(mesh){mesh.updateWorldMatrix(true,true);for(const hit of ray.intersectObject(mesh,true))hits.push({...hit,hitId:id});}
-   }
-   hits.sort((a,b)=>a.distance-b.distance);
-   const id=hits.length?hits[0].hitId:null;
-   const now=performance.now();
-   if(id!==active){active=id;since=now;firedFor=null;}
-   if(!id){return;}
-   if(id!==firedFor && now-since>=1200 && now-lastFire>1300){
-     firedFor=id;lastFire=now;
-     dispatch(id,callbacks[id]);
-     emit('gaze_fallback_checked',{target:id});
-   }
- },100);
-}
-
-function success(){counts.target++;flash($('target'),'#34d399');setText('notice','Target activated successfully');emit('target_activated');}
-function block(){counts.blocked++;flash($('shield'),'#fb7185');setText('notice','Demo: input intercepted by overlay');emit('input_blocked_by_overlay');}
-function proxy(){counts.proxy++;flash($('front'),'#f59e0b');setText('notice','Simulated rear-item attribution (local only)');emit('simulated_blind_spot_attribution',{real_ad_click:false});}
-window.addEventListener('DOMContentLoaded',()=>{
- render();
- if(mode==='dos'){
-   $('shield').setAttribute('visible','true');
-   // A visible, labeled overlay in front of the normal target catches its gaze ray.
-   bind('shield',block);
-   bind('target',success);
-   setText('instructions','Gaze at the pink shield for 1.2s. It blocks clicks on the blue target.');
- } else if(mode==='bst'){
-   $('rear').setAttribute('visible','true');
-   $('front').setAttribute('visible','true');
-   $('target').setAttribute('visible','false');
-   bind('front',proxy);
-   setText('instructions','Gaze at the FRONT orange button. Demo logs attribution to a REAR item.');
- }else{
-   bind('target',success);
-   setText('instructions','Gaze at the BLUE target for 1.2 seconds to activate it.');
- }
- bind('reset',()=>{counts={target:0,blocked:0,proxy:0};events.length=0;start=performance.now();setText('notice','Counters reset');emit('reset');});
- startGazeFallback();
- $('download').addEventListener('click',download);
- emit('session_start',{user_agent:navigator.userAgent});
- const scene=$('scene');scene.addEventListener('enter-vr',()=>emit('enter_vr'));scene.addEventListener('exit-vr',()=>emit('exit_vr'));
+// Synthetic application pointer, not hardware-controller injection or IWER.
+AFRAME.registerComponent('experiment', {
+  init() {
+    this.run = null;
+    if (this.el.hasLoaded) this.setup();
+    else this.el.addEventListener('loaded', () => this.setup(), {once: true});
+  },
+  setup() {
+    this.mode = document.body.dataset.mode;
+    this.rows = [];
+    this.run = null;
+    this.pending = null;
+    this.pointer = document.getElementById('pointer');
+    this.target = document.getElementById('target');
+    this.shield = document.getElementById('shield');
+    this.origin = new AFRAME.THREE.Vector3(0, 1.5, 0);
+    this.direction = new AFRAME.THREE.Vector3(0, 0, -1);
+    this.pose = new AFRAME.THREE.Vector3();
+    this.quat = new AFRAME.THREE.Quaternion();
+    this.shield.classList.toggle('interactive', this.mode === 'dos');
+    // Both conditions render the identical transparent mesh. Only hit testing changes.
+    this.pointer.setAttribute('raycaster', 'objects', '.interactive');
+    for (const element of [this.target, this.shield]) {
+      element.addEventListener('click', event => {
+        if (!this.pending || event.detail.cursorEl !== this.pointer) return;
+        this.pending.receivers.push(element.id);
+      });
+    }
+    this.el.addEventListener('enter-vr', () => {
+      // Reject physical controller events: scheduled custom down/up events are the input source.
+      this.pointer.components.cursor.removeWebXREventListeners();
+      this.start('quest-xr');
+    });
+    this.el.addEventListener('exit-vr', () => this.finish('aborted_exit_vr'));
+    document.addEventListener('visibilitychange', () => {
+      if (document.hidden) this.finish('aborted_hidden');
+    });
+    document.getElementById('desktop').onclick = () => this.start('desktop-test');
+    document.getElementById('stop').onclick = () => this.finish('aborted_by_user');
+    document.getElementById('csv').onclick = () => this.download('csv');
+    document.getElementById('json').onclick = () => this.download('json');
+    this.ui('Ready. Enter VR for a headset run, or start a desktop test.');
+    window.questLab = this;
+  },
+  ui(message) { document.getElementById('status').textContent = message; },
+  record(event, extra = {}) {
+    const now = performance.now();
+    const row = {
+      run_id: this.run.id, condition: this.mode, environment: this.run.environment,
+      event, time_iso: new Date().toISOString(), monotonic_ms: now,
+      epoch_ms: performance.timeOrigin + now,
+      measurement_elapsed_ms: this.run.measureStart === null ? '' : now - this.run.measureStart,
+      ...extra
+    };
+    this.rows.push(row);
+    return row;
+  },
+  start(environment) {
+    if (this.run && this.run.active) return;
+    const now = performance.now();
+    this.run = {
+      id: crypto.randomUUID(), environment, active: true, warmupStart: now,
+      measureStart: null, warmupMs: 15000, durationMs: 60000, intervalMs: 5000,
+      nextAttempt: 0, attempts: 0, targetClicks: 0, blockedClicks: 0, failures: 0,
+      userAgent: navigator.userAgent, aframe: AFRAME.version
+    };
+    this.record('warmup_start', {warmup_ms: 15000, duration_ms: 60000, interval_ms: 5000});
+    this.ui('Warming up for 15 seconds. Keep your head still; do not press controller buttons.');
+    document.getElementById('phase').setAttribute('value', 'WARMUP');
+  },
+  tick() {
+    const run = this.run;
+    if (!run || !run.active) return;
+    const now = performance.now();
+    if (run.measureStart === null) {
+      if (now - run.warmupStart < run.warmupMs) return;
+      run.measureStart = now;
+      this.record('measurement_start');
+      document.getElementById('phase').setAttribute('value', 'RECORDING');
+      this.ui('Recording for 60 seconds. Twelve attempts, five seconds apart.');
+    }
+    const elapsed = now - run.measureStart;
+    if (elapsed >= run.durationMs) {
+      if (run.attempts !== 12) run.failures++;
+      this.finish(run.failures ? 'invalid_run' : 'completed');
+      return;
+    }
+    if (elapsed < run.nextAttempt) return;
+    const scheduled = run.nextAttempt;
+    // Never manufacture a burst of catch-up clicks after a stall.
+    if (elapsed - scheduled > 250) {
+      this.record('timing_failure', {scheduled_ms: scheduled, lateness_ms: elapsed - scheduled});
+      this.finish('invalid_timing');
+      return;
+    }
+    run.nextAttempt += run.intervalMs;
+    this.attempt(scheduled);
+  },
+  attempt(scheduled) {
+    const run = this.run;
+    const raycaster = this.pointer.components.raycaster;
+    this.el.object3D.updateMatrixWorld(true);
+    raycaster.refreshObjects();
+    // Refresh actual mesh intersections BEFORE sending cursor input.
+    raycaster.checkIntersections();
+    const hit = raycaster.intersections[0];
+    const attemptId = ++run.attempts;
+    this.pending = {receivers: []};
+    const camera = this.el.camera;
+    camera.getWorldPosition(this.pose);
+    camera.getWorldQuaternion(this.quat);
+    this.record('input_attempt', {
+      attempt_id: attemptId, scheduled_ms: scheduled,
+      lateness_ms: performance.now() - run.measureStart - scheduled,
+      input_source: 'scheduled_aframe_cursor', intended_target: 'target',
+      hit_object: hit ? hit.object.el.id : '', hit_distance: hit ? hit.distance : '',
+      pointer_x: 0, pointer_y: 1.5, pointer_z: 0,
+      direction_x: 0, direction_y: 0, direction_z: -1,
+      head_x: this.pose.x, head_y: this.pose.y, head_z: this.pose.z,
+      head_qx: this.quat.x, head_qy: this.quat.y, head_qz: this.quat.z, head_qw: this.quat.w
+    });
+    // Same native A-Frame cursor path for both modes; never call target handlers directly.
+    this.pointer.emit('trial-down', {}, false);
+    this.pointer.emit('trial-up', {}, false);
+    const receivers = this.pending.receivers;
+    this.pending = null;
+    const expected = this.mode === 'dos' ? 'shield' : 'target';
+    const valid = receivers.length === 1 && receivers[0] === expected;
+    if (receivers.includes('target')) run.targetClicks++;
+    if (receivers.includes('shield')) run.blockedClicks++;
+    if (!valid) run.failures++;
+    this.record('input_result', {
+      attempt_id: attemptId, received_by: receivers.join('|'),
+      outcome: valid ? (this.mode === 'dos' ? 'blocked' : 'target_activated') : 'unexpected',
+      expected_receiver: expected, valid
+    });
+    // No flashes, counters, console output, or text changes during measurement.
+  },
+  finish(reason) {
+    const run = this.run;
+    if (!run || !run.active) return;
+    this.record('run_end', {
+      reason, attempts: run.attempts, target_clicks: run.targetClicks,
+      blocked_clicks: run.blockedClicks, failures: run.failures
+    });
+    run.active = false;
+    run.reason = reason;
+    document.getElementById('phase').setAttribute('value', 'FINISHED');
+    this.ui(`${reason}: ${run.attempts} attempts; target ${run.targetClicks}; blocked ${run.blockedClicks}; failures ${run.failures}. Exit VR and export CSV + JSON.`);
+  },
+  download(format) {
+    if (this.run && this.run.active) {
+      this.ui('Stop or finish the run before exporting.');
+      return;
+    }
+    if (!this.rows.length) { this.ui('No trials recorded yet.'); return; }
+    let content;
+    if (format === 'json') {
+      content = JSON.stringify({schema: 1, latestRun: this.run, events: this.rows}, null, 2);
+    } else {
+      const keys = [...new Set(this.rows.flatMap(row => Object.keys(row)))];
+      const quote = value => '"' + String(value ?? '').replaceAll('"', '""') + '"';
+      content = [keys.map(quote).join(','), ...this.rows.map(row => keys.map(key => quote(row[key])).join(','))].join('\r\n');
+    }
+    const url = URL.createObjectURL(new Blob([content], {type: format === 'json' ? 'application/json' : 'text/csv'}));
+    const anchor = document.createElement('a');
+    anchor.href = url;
+    anchor.download = `quest-${this.mode}-${Date.now()}.${format}`;
+    anchor.click();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  }
 });
-function download(){const columns=['time_iso','elapsed_ms','mode','event','real_ad_click','user_agent'];const data=[columns.join(','),...events.map(row=>columns.map(k=>'"'+String(row[k]??'').replaceAll('"','""')+'"').join(','))].join('\n');const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([data],{type:'text/csv'}));a.download='quest3-'+mode+'-'+Date.now()+'.csv';a.click();setTimeout(()=>URL.revokeObjectURL(a.href),1000);}
-})();
