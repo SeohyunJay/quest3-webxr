@@ -52,3 +52,9 @@ Hardware counters come from MQDH/OVR separately. These CSV files are interaction
 JavaScript syntax and automated scheduler checks passed: warmup/duration, twelve scheduled attempts, late-timer rejection, abort behavior, invalid-run handling, and identical HTML apart from mode. A-Frame 1.8.0 cursor/raycaster source was inspected for the input path.
 
 Browser rendering and actual A-Frame event delivery were NOT successfully exercised in the authoring environment: its browser could not reach the local preview server, and direct dependency fetching was unavailable. Physical Quest validation is also outstanding. The expected counts above are acceptance criteria, not claimed observed hardware results.
+
+## v2 cursor synchronization fix
+
+The first physical Quest baseline log showed 12 correct ray intersections but zero received clicks. A-Frame clears cursor selection on entering VR; a stationary ray can retain its cached hit without a new intersection-change event. v2 reconciles the cursor selection from the actual raycast before input, and logs cursor_before_sync/cursor_after_sync. It does not force target selection: DoS still chooses the nearer shield. The page displays v2 and requests a versioned app.js URL to reduce stale-cache confusion.
+
+Scheduler checks and a mocked cached-ray/cleared-cursor regression passed for baseline and DoS. This fixture tests application reconciliation logic, not browser rendering or full A-Frame execution. A repeat physical Quest run is required to confirm the diagnosis and fix. Do not use the original invalid run as a successful baseline.

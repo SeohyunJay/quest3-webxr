@@ -4,14 +4,14 @@
 <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Quest interaction experiment</title>
 <script src="https://aframe.io/releases/1.8.0/aframe.min.js"></script>
-<script src="app.js"></script>
+<script src="app.js?v=cursor-sync-v2"></script>
 <style>
 body{margin:0;font:15px system-ui;color:#e2e8f0;background:#0b1224}#panel{position:absolute;z-index:5;top:12px;left:12px;max-width:410px;padding:16px;background:#0f172aee;border-radius:12px}a{color:#93c5fd}button{padding:9px;margin:4px 4px 4px 0;cursor:pointer}p{line-height:1.4}#status{white-space:pre-wrap}
 </style>
 </head>
 <body data-mode="baseline">
 <div id="panel">
-<strong>Quest baseline / DoS experiment</strong>
+<strong>Quest baseline / DoS experiment · v2</strong>
 <p><a href="index.html">Baseline</a> · <a href="dos.html">DoS</a></p>
 <p>Enter VR to begin: 15-second warmup, then a 60-second run. A fixed application pointer attempts the target every 5 seconds. Keep looking toward the target and do not use controller buttons.</p>
 <button id="desktop">Start desktop test</button><button id="stop">Stop</button>
@@ -38,3 +38,4 @@ body{margin:0;font:15px system-ui;color:#e2e8f0;background:#0b1224}#panel{positi
 </a-scene>
 </body>
 </html>
+

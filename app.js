@@ -62,6 +62,7 @@ AFRAME.registerComponent('experiment', {
     const now = performance.now();
     this.run = {
       id: crypto.randomUUID(), environment, active: true, warmupStart: now,
+      build: '2026-11-12-cursor-sync-v2',
       measureStart: null, warmupMs: 15000, durationMs: 60000, intervalMs: 5000,
       nextAttempt: 0, attempts: 0, targetClicks: 0, blockedClicks: 0, failures: 0,
       userAgent: navigator.userAgent, aframe: AFRAME.version
@@ -106,6 +107,19 @@ AFRAME.registerComponent('experiment', {
     // Refresh actual mesh intersections BEFORE sending cursor input.
     raycaster.checkIntersections();
     const hit = raycaster.intersections[0];
+    const cursor = this.pointer.components.cursor;
+    const cursorBefore = cursor.intersectedEl ? cursor.intersectedEl.id : '';
+    // enter-vr clears cursor selection even if the fixed ray's hit is unchanged.
+    // Reconcile from real intersections; do not force the intended target.
+    if (cursor.intersectedEl !== (hit ? hit.object.el : null)) {
+      cursor.clearCurrentIntersection(true);
+      if (raycaster.intersections.length) {
+        cursor.onIntersection({detail: {
+          els: raycaster.intersectedEls,
+          intersections: raycaster.intersections
+        }});
+      }
+    }
     const attemptId = ++run.attempts;
     this.pending = {receivers: []};
     const camera = this.el.camera;
@@ -116,6 +130,8 @@ AFRAME.registerComponent('experiment', {
       lateness_ms: performance.now() - run.measureStart - scheduled,
       input_source: 'scheduled_aframe_cursor', intended_target: 'target',
       hit_object: hit ? hit.object.el.id : '', hit_distance: hit ? hit.distance : '',
+      cursor_before_sync: cursorBefore,
+      cursor_after_sync: cursor.intersectedEl ? cursor.intersectedEl.id : '',
       pointer_x: 0, pointer_y: 1.5, pointer_z: 0,
       direction_x: 0, direction_y: 0, direction_z: -1,
       head_x: this.pose.x, head_y: this.pose.y, head_z: this.pose.z,
